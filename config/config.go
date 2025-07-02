@@ -1,89 +1,120 @@
+// ffwebapi/config/config.go
 package config
 
 import (
-    "strings"
-    "time"
+	"reflect"
+	"strings"
+	"time"
 
-    "github.com/spf13/viper"
+	"github.com/c2h5oh/datasize"
+	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/viper"
 )
 
 type Config struct {
-    FFBin               string        `mapstructure:"FF_BIN"`
-    FFTimeout           time.Duration `mapstructure:"FF_TIMEOUT"`
-    OutputLocalLifetime time.Duration `mapstructure:"OUTPUT_LOCAL_LIFETIME"`
-    MaxInputSize        int64         `mapstructure:"MAX_INPUT_SIZE"` // in bytes
-    MaxConcurrency      int           `mapstructure:"MAX_CONCURRENCY"`
-    ThrottleCPU         float64       `mapstructure:"THROTTLE_CPU"` // percentage
-    ThrottleFreeMem     int64         `mapstructure:"THROTTLE_FREEMEM"` // in bytes
-    ThrottleFreeDisk    int64         `mapstructure:"THROTTLE_FREEDISK"` // in bytes
-    AuthEnable          bool          `mapstructure:"AUTH_ENABLE"`
-    AuthKey             string        `mapstructure:"AUTH_KEY"`
-    Port                string        `mapstructure:"PORT"`
-    BaseURL             string        `mapstructure:"BASE"`
-    TempDir             string        // Not from config, but useful to have globally
+	FFBin               string        `mapstructure:"FF_BIN"`
+	FFTimeout           time.Duration `mapstructure:"FF_TIMEOUT"`
+	OutputLocalLifetime time.Duration `mapstructure:"OUTPUT_LOCAL_LIFETIME"`
+	MaxInputSize        int64         `mapstructure:"MAX_INPUT_SIZE"`
+	MaxConcurrency      int           `mapstructure:"MAX_CONCURRENCY"`
+	ThrottleCPU         float64       `mapstructure:"THROTTLE_CPU"`
+	ThrottleFreeMem     int64         `mapstructure:"THROTTLE_FREEMEM"`
+	ThrottleFreeDisk    int64         `mapstructure:"THROTTLE_FREEDISK"`
+	AuthEnable          bool          `mapstructure:"AUTH_ENABLE"`
+	AuthKey             string        `mapstructure:"AUTH_KEY"`
+	Port                string        `mapstructure:"PORT"`
+	BaseURL             string        `mapstructure:"BASE"`
+	TempDir             string
 }
 
-// ByteSize is a helper type to unmarshal size strings (e.g., "200MB")
-// For simplicity in this implementation, we use Viper's built-in size parsing
-// and handle it in the Load function directly.
+// stringToDurationHookFunc is a custom Viper hook for parsing Go's duration strings.
+// <-- NEW
+func stringToDurationHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{},
+	) (interface{}, error) {
+		// We only care about converting strings to time.Duration.
+		if f.Kind() != reflect.String || t != reflect.TypeOf(time.Duration(0)) {
+			return data, nil
+		}
+
+		// It is a string -> time.Duration. Parse it.
+		return time.ParseDuration(data.(string))
+	}
+}
+
+// stringToByteSizeHookFunc is a custom Viper hook for parsing human-readable size strings.
+func stringToByteSizeHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{},
+	) (interface{}, error) {
+		// We only care about converting strings to int64s for byte sizes.
+		if f.Kind() != reflect.String || t.Kind() != reflect.Int64 {
+			return data, nil
+		}
+
+		var size datasize.ByteSize
+		err := size.UnmarshalText([]byte(data.(string)))
+		if err != nil {
+			// Not a valid size string, let other parsers handle it.
+			return data, nil
+		}
+
+		return int64(size.Bytes()), nil
+	}
+}
 
 func Load() (*Config, error) {
-    vp := viper.New()
-    
-    // Set default values
-    vp.SetDefault("FF_BIN", "ffmpeg")
-    vp.SetDefault("FF_TIMEOUT", "12m3s")
-    vp.SetDefault("OUTPUT_LOCAL_LIFETIME", "1h23m")
-    vp.SetDefault("MAX_INPUT_SIZE", "200MB")
-    vp.SetDefault("MAX_CONCURRENCY", 1)
-    vp.SetDefault("THROTTLE_CPU", 50.0)
-    vp.SetDefault("THROTTLE_FREEMEM", "200MB")
-    vp.SetDefault("THROTTLE_FREEDISK", "200MB")
-    vp.SetDefault("AUTH_ENABLE", false)
-    vp.SetDefault("AUTH_KEY", "123456")
-    vp.SetDefault("PORT", "8080")
-    vp.SetDefault("BASE", "")
+	vp := viper.New()
 
-    // Load from config file
-    vp.SetConfigName("ffwebapi_config")
-    vp.SetConfigType("yaml")
-    vp.AddConfigPath(".")
-    vp.AddConfigPath("/etc/ffwebapi/")
-    
-    if err := vp.ReadInConfig(); err != nil {
-        if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-            return nil, err
-        }
-    }
+	// Set default values as strings, the hooks will handle them.
+	vp.SetDefault("FF_BIN", "ffmpeg")
+	vp.SetDefault("FF_TIMEOUT", "12m3s")
+	vp.SetDefault("OUTPUT_LOCAL_LIFETIME", "1h23m")
+	vp.SetDefault("MAX_INPUT_SIZE", "200MB")
+	vp.SetDefault("MAX_CONCURRENCY", 1)
+	vp.SetDefault("THROTTLE_CPU", 50.0)
+	vp.SetDefault("THROTTLE_FREEMEM", "200MB")
+	vp.SetDefault("THROTTLE_FREEDISK", "200MB")
+	vp.SetDefault("AUTH_ENABLE", false)
+	vp.SetDefault("AUTH_KEY", "123456")
+	vp.SetDefault("PORT", "8080")
+	vp.SetDefault("BASE", "")
 
-    // Load from environment variables
-    vp.SetEnvPrefix("FFWEBAPI")
-    vp.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-    vp.AutomaticEnv()
+	// Load from config file
+	vp.SetConfigName("ffwebapi_config")
+	vp.SetConfigType("yaml")
+	vp.AddConfigPath(".")
+	vp.AddConfigPath("/etc/ffwebapi/")
 
-    var cfg Config
-    
-    // We need to manually parse duration and size strings when unmarshalling
-    // Viper doesn't automatically do this for struct fields from env vars
-    // without more complex hooks. This is a simple and effective way.
+	if err := vp.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, err
+		}
+	}
 
-    d, err := time.ParseDuration(vp.GetString("FF_TIMEOUT"))
-    if err != nil { return nil, err }
-    cfg.FFTimeout = d
+	// Load from environment variables
+	vp.SetEnvPrefix("FFWEBAPI")
+	vp.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	vp.AutomaticEnv()
 
-    d, err = time.ParseDuration(vp.GetString("OUTPUT_LOCAL_LIFETIME"))
-    if err != nil { return nil, err }
-    cfg.OutputLocalLifetime = d
+	var cfg Config
+	// Unmarshal the config, providing our custom composed hooks.
+	// The order matters: the first hook that succeeds is used.
+	// <-- CHANGED
+	err := vp.Unmarshal(&cfg, viper.DecodeHook(
+		mapstructure.ComposeDecodeHookFunc(
+			stringToDurationHookFunc(),
+			stringToByteSizeHookFunc(),
+		),
+	))
+	if err != nil {
+		return nil, err
+	}
 
-    // The rest of the fields can be unmarshalled directly
-    if err := vp.Unmarshal(&cfg); err != nil {
-        return nil, err
-    }
-    
-    // Handle size strings from env vars/config using Viper's Get...Size... methods
-    cfg.MaxInputSize = vp.GetInt64("MAX_INPUT_SIZE")
-    cfg.ThrottleFreeMem = vp.GetInt64("THROTTLE_FREEMEM")
-    cfg.ThrottleFreeDisk = vp.GetInt64("THROTTLE_FREEDISK")
-
-    return &cfg, nil
+	return &cfg, nil
 }
