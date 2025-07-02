@@ -1,0 +1,36 @@
+# FFmpeg binary path
+FF_BIN: ffmpeg
+
+# Max time for a single ffmpeg process
+FF_TIMEOUT: 12m3s
+
+# How long to keep output files locally before deletion
+OUTPUT_LOCAL_LIFETIME: 1h23m
+
+# Max size for an input file (URL download or local copy)
+# Supported units: B, K, KB, M, MB, G, GB
+MAX_INPUT_SIZE: 200MB
+
+# Number of concurrent ffmpeg processes
+MAX_CONCURRENCY: 1
+
+# Don't start a task if idle CPU is less than this percentage
+THROTTLE_CPU: 50
+
+# Don't start a task if free memory is less than this
+THROTTLE_FREEMEM: 200MB
+
+# Don't start a task if free disk space in the temp dir is less than this
+THROTTLE_FREEDISK: 200MB
+
+# --- Server Settings ---
+PORT: 8080
+
+# Base URL for constructing download links.
+# If empty, it's auto-detected from the request.
+# Example: "https://my-ffmpeg-api.com"
+BASE: ""
+
+# --- Authentication ---
+AUTH_ENABLE: false # Set to true to enable bearer token auth
+AUTH_KEY: "supersecretkey123"
