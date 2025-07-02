@@ -46,4 +46,4 @@ A web API wrapper for FFmpeg, implemented in Go.
 
 ## API Usage
 
-See the original project specification for `curl` examples.
+TBD
